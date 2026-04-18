@@ -5,7 +5,6 @@ Fetches the daily rate from goldback.com and appends to data/rates.json
 """
 
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -15,7 +14,6 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
-# ── optional: fall back to Playwright if requests can't find the rate ──────
 try:
     from playwright.sync_api import sync_playwright
     PLAYWRIGHT_AVAILABLE = True
@@ -24,7 +22,6 @@ except ImportError:
 
 DATA_FILE = Path(__file__).parent / "data" / "rates.json"
 URL = "https://www.goldback.com/exchange-rates/"
-
 MST = ZoneInfo("America/Denver")
 
 
@@ -42,23 +39,38 @@ def save_data(records: list) -> None:
 
 
 def extract_rate_from_html(html: str) -> float | None:
-    """Try several patterns to find the USD rate in rendered HTML."""
-    # Pattern 1: look for  something like "1 Goldback = $0.3456"
+    """
+    Try several patterns to find the USD rate in rendered HTML.
+    The Goldback rate is currently in the $5–$50 range (as of 2026).
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Strategy 1: find h2 elements — the rate lives in an <h2> on the exchange page
+    for tag in soup.find_all(["h2", "h3", "span", "p"]):
+        text = tag.get_text(strip=True)
+        # Match a bare dollar amount like "$9.73" or "9.73"
+        m = re.search(r'^\$?([\d]{1,3}\.[\d]{2})$', text)
+        if m:
+            val = float(m.group(1))
+            if 1.0 < val < 200.0:
+                return round(val, 2)
+
+    # Strategy 2: regex sweep over full HTML
     patterns = [
-        r'\$\s*([\d]+\.[\d]{2,4})',               # "$0.3456"
-        r'1\s*=\s*\$?\s*([\d]+\.[\d]{2,4})',       # "1 = $0.34"
-        r'"rate"\s*:\s*([\d]+\.[\d]{2,4})',         # JSON key
+        r'"rate"\s*:\s*([\d]+\.[\d]{2,4})',           # JSON key
         r'"exchange_rate"\s*:\s*([\d]+\.[\d]+)',
         r'data-rate="([\d]+\.[\d]+)"',
         r'exchangeRate\s*[=:]\s*([\d]+\.[\d]+)',
+        r'1\s*Goldback[^$]*\$\s*([\d]+\.[\d]{2})',    # "1 Goldback = $9.73"
+        r'\$\s*([\d]{1,3}\.[\d]{2})\b',               # "$9.73" anywhere
     ]
     for pat in patterns:
-        m = re.search(pat, html, re.IGNORECASE)
-        if m:
+        for m in re.finditer(pat, html, re.IGNORECASE):
             val = float(m.group(1))
-            # Sanity-check: Goldback rate should be roughly $0.10–$2.00
-            if 0.05 < val < 5.0:
+            # Real Goldback rate: ~$2.50 (2019) to ~$50 (far future)
+            if 1.0 < val < 200.0:
                 return round(val, 4)
+
     return None
 
 
@@ -79,23 +91,27 @@ def fetch_with_playwright() -> float | None:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(URL, wait_until="networkidle", timeout=60_000)
-        # Give dynamic content a moment
-        page.wait_for_timeout(3000)
+
+        # Wait until an h2 on the page contains a dollar amount (the live rate)
+        try:
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('h2, h3, span'))"
+                ".some(el => /^\\$?[\\d]{1,3}\\.[\\d]{2}$/.test(el.textContent.trim()))",
+                timeout=20_000,
+            )
+        except Exception:
+            # Fallback: just wait a few extra seconds for JS to settle
+            page.wait_for_timeout(5_000)
+
         html = page.content()
         browser.close()
         return extract_rate_from_html(html)
 
 
 def fetch_gold_spot_usd() -> float | None:
-    """Fetch live gold spot price from metals-api or a public fallback."""
-    # Use a free public endpoint (no key required, returns approximate price)
     try:
-        r = requests.get(
-            "https://api.metals.live/v1/spot/gold",
-            timeout=10,
-        )
+        r = requests.get("https://api.metals.live/v1/spot/gold", timeout=10)
         data = r.json()
-        # Response: [{"gold": 2350.12}] or {"price": 2350.12}
         if isinstance(data, list) and data:
             return float(data[0].get("price") or data[0].get("gold", 0)) or None
         if isinstance(data, dict):
@@ -107,10 +123,8 @@ def fetch_gold_spot_usd() -> float | None:
 
 def main() -> None:
     today = datetime.now(tz=MST).strftime("%Y-%m-%d")
-
     records = load_existing_data()
 
-    # Don't re-scrape if we already have today's entry
     if records and records[-1].get("date") == today:
         print(f"Already have data for {today}. Skipping.")
         sys.exit(0)
@@ -119,7 +133,7 @@ def main() -> None:
 
     rate = fetch_with_requests()
     if rate is None and PLAYWRIGHT_AVAILABLE:
-        print("  requests failed — trying Playwright …")
+        print("  requests found no rate — trying Playwright …")
         rate = fetch_with_playwright()
 
     if rate is None:
@@ -127,7 +141,7 @@ def main() -> None:
         sys.exit(1)
 
     gold_spot = fetch_gold_spot_usd()
-    # 1 Goldback = 1/1000 troy oz of 24k gold
+    # 1 Goldback = 1/1000 troy oz of 24k gold → implied gold spot = rate × 1000
     implied_spot = round(rate * 1000, 2) if rate else None
 
     record = {
