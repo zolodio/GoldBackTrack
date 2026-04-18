@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goldback Exchange Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+
+<style>
+  :root {
+    --bg:       #0c0b09;
+    --bg2:      #131109;
+    --bg3:      #1a1710;
+    --panel:    #1e1b13;
+    --border:   #2e2a1e;
+    --gold:     #c9a84c;
+    --gold2:    #f0d070;
+    --gold3:    #8a6c28;
+    --text:     #e8dfc8;
+    --muted:    #7a7260;
+    --green:    #5aad7a;
+    --red:      #c95a4c;
+    --mono:     'DM Mono', monospace;
+    --serif:    'Cormorant Garamond', Georgia, serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grain overlay ──────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 999;
+    opacity: 0.4;
+  }
+
+  /* ── Gold line top ────────────────────────────────── */
+  .gold-line {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold3), var(--gold), var(--gold2), var(--gold), var(--gold3), transparent);
+  }
+
+  /* ── Header ─────────────────────────────────────────── */
+  header {
+    padding: 2.5rem 3rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .logo {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+
+  .logo-mark {
+    font-family: var(--serif);
+    font-size: 2rem;
+    font-weight: 300;
+    color: var(--gold2);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .logo-sub {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    text-align: right;
+  }
+  .header-time {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .header-badge {
+    display: inline-block;
+    background: var(--gold3);
+    color: var(--gold2);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.2em 0.6em;
+    border-radius: 2px;
+    margin-top: 0.4rem;
+  }
+
+  /* ── Hero ────────────────────────────────────────────── */
+  .hero {
+    padding: 4rem 3rem 3rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 2rem;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold3), transparent);
+  }
+
+  .hero-main {
+    grid-column: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .hero-label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .hero-rate {
+    font-family: var(--serif);
+    font-size: clamp(3.5rem, 6vw, 5.5rem);
+    font-weight: 300;
+    color: var(--gold2);
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+
+  .hero-rate sup {
+    font-size: 0.38em;
+    vertical-align: super;
+    color: var(--gold);
+    font-weight: 400;
+  }
+
+  .hero-sub {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 0.6rem;
+  }
+
+  .hero-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    padding: 0.3em 0.7em;
+    border-radius: 3px;
+  }
+  .hero-change.up { background: rgba(90,173,122,0.15); color: var(--green); }
+  .hero-change.down { background: rgba(201,90,76,0.15); color: var(--red); }
+
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.4rem 1.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold3), transparent);
+  }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--gold2);
+    line-height: 1.1;
+  }
+  .stat-value.sm { font-size: 1.1rem; }
+
+  .stat-meta {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+  .stat-meta .up { color: var(--green); }
+  .stat-meta .down { color: var(--red); }
+
+  /* ── Grid layout ──────────────────────────────────── */
+  .main-grid {
+    padding: 2.5rem 3rem;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 2rem;
+  }
+
+  /* ── Chart panel ─────────────────────────────────────── */
+  .chart-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.8rem;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+  }
+
+  .panel-title {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 400;
+    color: var(--gold2);
+    letter-spacing: 0.01em;
+  }
+
+  .range-tabs {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .range-tab {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.3em 0.7em;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    color: var(--muted);
+    background: none;
+    transition: all 0.2s;
+  }
+  .range-tab:hover { color: var(--gold); border-color: var(--gold3); }
+  .range-tab.active { background: var(--gold3); color: var(--gold2); border-color: var(--gold); }
+
+  .chart-wrap {
+    position: relative;
+    height: 280px;
+  }
+
+  /* ── Denominations ───────────────────────────────── */
+  .denom-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.6rem;
+  }
+
+  .denom-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+  }
+
+  .denom-table th {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 0 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .denom-table th:last-child { text-align: right; }
+
+  .denom-table td {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid rgba(46,42,30,0.5);
+    vertical-align: middle;
+    color: var(--text);
+  }
+  .denom-table td:last-child {
+    text-align: right;
+    color: var(--gold2);
+    font-weight: 500;
+  }
+  .denom-table tr:last-child td { border-bottom: none; }
+  .denom-table tr:hover td { background: rgba(201,168,76,0.04); }
+
+  .denom-badge {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--gold);
+    font-size: 0.75rem;
+    padding: 0.1em 0.5em;
+    border-radius: 2px;
+    font-family: var(--mono);
+  }
+
+  /* ── Second row ─────────────────────────────────── */
+  .second-row {
+    padding: 0 3rem 2.5rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+
+  /* ── History table ───────────────────────────────── */
+  .history-panel {
+    padding: 0 3rem 2.5rem;
+  }
+
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+  }
+  .history-table th {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 0.5rem 1rem;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+  }
+  .history-table th:not(:first-child) { text-align: right; }
+
+  .history-table td {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid rgba(46,42,30,0.4);
+    color: var(--text);
+  }
+  .history-table td:not(:first-child) { text-align: right; }
+  .history-table tr:nth-child(odd) td { background: rgba(30,27,19,0.5); }
+  .history-table tr:hover td { background: rgba(201,168,76,0.06); }
+
+  .pill { display: inline-block; border-radius: 2px; padding: 0.1em 0.45em; font-size: 0.75rem; }
+  .pill.up { background: rgba(90,173,122,0.15); color: var(--green); }
+  .pill.down { background: rgba(201,90,76,0.15); color: var(--red); }
+
+  /* ── Calculator ──────────────────────────────────── */
+  .calc-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.8rem;
+  }
+
+  .calc-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+    margin-top: 1.2rem;
+    flex-wrap: wrap;
+  }
+
+  .calc-field {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .calc-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 0.4rem;
+  }
+
+  .calc-input, .calc-select {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--gold2);
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    padding: 0.6rem 0.8rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .calc-input:focus, .calc-select:focus { border-color: var(--gold3); }
+  .calc-select option { background: var(--bg3); color: var(--text); }
+
+  .calc-result {
+    margin-top: 1.2rem;
+    padding: 1rem 1.2rem;
+    background: var(--bg3);
+    border: 1px solid var(--gold3);
+    border-radius: 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .calc-result-label { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+  .calc-result-value { font-family: var(--mono); font-size: 1.6rem; color: var(--gold2); font-weight: 500; }
+
+  /* ── Returns chart ────────────────────────────────── */
+  .returns-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1.8rem;
+  }
+
+  /* ── Footer ──────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 2rem 3rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  footer a { color: var(--gold3); text-decoration: none; }
+  footer a:hover { color: var(--gold); }
+
+  /* ── Loading ──────────────────────────────────────── */
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    transition: opacity 0.6s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  .loader-glyph {
+    font-family: var(--serif);
+    font-size: 3rem;
+    color: var(--gold);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .loader-text {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-top: 1rem;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+  /* ── Animations ─────────────────────────────────── */
+  .fade-in { opacity: 0; animation: fadeIn 0.8s ease forwards; }
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  .rise { opacity: 0; transform: translateY(16px); animation: rise 0.7s ease forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* Staggered delays */
+  .d1 { animation-delay: 0.1s; }
+  .d2 { animation-delay: 0.2s; }
+  .d3 { animation-delay: 0.3s; }
+  .d4 { animation-delay: 0.4s; }
+  .d5 { animation-delay: 0.5s; }
+  .d6 { animation-delay: 0.6s; }
+  .d7 { animation-delay: 0.7s; }
+
+  /* ── Responsive ─────────────────────────────────── */
+  @media (max-width: 1100px) {
+    .hero { grid-template-columns: 1fr 1fr; }
+    .main-grid { grid-template-columns: 1fr; }
+    .second-row { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 700px) {
+    header, .hero, .main-grid, .second-row, .history-panel, footer {
+      padding-left: 1.2rem; padding-right: 1.2rem;
+    }
+    .hero { grid-template-columns: 1fr; }
+    .hero-rate { font-size: 3.2rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loading">
+  <div class="loader-glyph">◈</div>
+  <div class="loader-text">Loading Exchange Data</div>
+</div>
+
+<div class="gold-line"></div>
+
+<header>
+  <div class="logo">
+    <span class="logo-mark">◈ Goldback</span>
+    <span class="logo-sub">Exchange Tracker</span>
+  </div>
+  <div class="header-right">
+    <div class="header-time" id="clock"></div>
+    <div class="header-badge">Data via goldback.com · Updated Daily 10 AM MST</div>
+  </div>
+</header>
+
+<!-- ── Hero ──────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-main fade-in d1">
+    <div class="hero-label">1 Goldback equals</div>
+    <div class="hero-rate"><sup>$</sup><span id="hero-rate">—</span></div>
+    <div class="hero-sub">USD · as of <span id="hero-date">—</span></div>
+    <div class="hero-change" id="hero-change">— daily change</div>
+  </div>
+
+  <div class="stat-card rise d2">
+    <div class="stat-label">All-Time High</div>
+    <div class="stat-value" id="stat-ath">—</div>
+    <div class="stat-meta" id="stat-ath-date">—</div>
+  </div>
+
+  <div class="stat-card rise d3">
+    <div class="stat-label">YTD Change</div>
+    <div class="stat-value" id="stat-ytd">—</div>
+    <div class="stat-meta">since Jan 1</div>
+  </div>
+
+  <div class="stat-card rise d4">
+    <div class="stat-label">30-Day Change</div>
+    <div class="stat-value" id="stat-30d">—</div>
+    <div class="stat-meta">vs. 30 days ago</div>
+  </div>
+
+  <div class="stat-card rise d5">
+    <div class="stat-label">1-Year Change</div>
+    <div class="stat-value" id="stat-1y">—</div>
+    <div class="stat-meta">vs. 1 year ago</div>
+  </div>
+
+  <div class="stat-card rise d6">
+    <div class="stat-label">Since Inception (2019)</div>
+    <div class="stat-value sm" id="stat-total">—</div>
+    <div class="stat-meta">Avg <span id="stat-avg-annual">—</span>%/yr</div>
+  </div>
+</section>
+
+<!-- ── Main grid ──────────────────────────────────────── -->
+<div class="main-grid">
+
+  <!-- Chart -->
+  <div class="chart-panel rise d1">
+    <div class="panel-header">
+      <div class="panel-title">Exchange Rate History</div>
+      <div class="range-tabs">
+        <button class="range-tab" data-range="1m">1M</button>
+        <button class="range-tab" data-range="3m">3M</button>
+        <button class="range-tab" data-range="6m">6M</button>
+        <button class="range-tab active" data-range="1y">1Y</button>
+        <button class="range-tab" data-range="all">ALL</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="rateChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Denominations -->
+  <div class="denom-panel rise d2">
+    <div class="panel-header" style="margin-bottom:0">
+      <div class="panel-title">Denomination Values</div>
+    </div>
+    <table class="denom-table">
+      <thead>
+        <tr>
+          <th>Denom</th>
+          <th>Gold (T oz)</th>
+          <th style="text-align:right">USD Value</th>
+        </tr>
+      </thead>
+      <tbody id="denom-tbody">
+        <!-- filled by JS -->
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ── Second row ──────────────────────────────────────── -->
+<div class="second-row">
+
+  <!-- Calculator -->
+  <div class="calc-panel rise d1">
+    <div class="panel-title">Transaction Calculator</div>
+    <div class="calc-row">
+      <div class="calc-field">
+        <label class="calc-label" for="calc-qty">Quantity</label>
+        <input class="calc-input" id="calc-qty" type="number" value="1" min="0" step="0.25">
+      </div>
+      <div class="calc-field">
+        <label class="calc-label" for="calc-denom">Denomination</label>
+        <select class="calc-select" id="calc-denom">
+          <option value="0.25">¼ Goldback</option>
+          <option value="0.5">½ Goldback</option>
+          <option value="1" selected>1 Goldback</option>
+          <option value="2">2 Goldback</option>
+          <option value="5">5 Goldback</option>
+          <option value="10">10 Goldback</option>
+          <option value="25">25 Goldback</option>
+          <option value="50">50 Goldback</option>
+          <option value="100">100 Goldback</option>
+        </select>
+      </div>
+    </div>
+    <div class="calc-result">
+      <span class="calc-result-label">USD Value</span>
+      <span class="calc-result-value" id="calc-output">$—</span>
+    </div>
+    <div style="margin-top:0.8rem; font-family:var(--mono); font-size:0.68rem; color:var(--muted)">
+      Gold weight: <span id="calc-gold-oz" style="color:var(--gold)">—</span> T oz  ·  
+      At spot: <span id="calc-spot-val" style="color:var(--gold)">—</span>
+    </div>
+  </div>
+
+  <!-- Annual returns bar chart -->
+  <div class="returns-panel rise d2">
+    <div class="panel-header">
+      <div class="panel-title">Annual Performance</div>
+    </div>
+    <div class="chart-wrap" style="height:220px">
+      <canvas id="annualChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── History table ──────────────────────────────────── -->
+<div class="history-panel">
+  <div class="chart-panel rise d1">
+    <div class="panel-header">
+      <div class="panel-title">Full Rate History</div>
+      <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)" id="history-count"></div>
+    </div>
+    <div style="max-height:380px; overflow-y:auto; margin-top:0.5rem;">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Rate (USD)</th>
+            <th>Change</th>
+            <th>Gold Spot</th>
+            <th>Premium vs Spot</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <span>© Goldback Exchange Tracker · Data sourced from <a href="https://www.goldback.com/exchange-rates/" target="_blank">goldback.com</a></span>
+  <span>Updated daily via GitHub Actions · <a href="data/rates.json" target="_blank">rates.json</a></span>
+</footer>
+
+<script>
+// ── Denominations config ─────────────────────────────
+const DENOMS = [
+  { label: '¼',  mult: 0.25,  oz: 1/4000  },
+  { label: '½',  mult: 0.5,   oz: 1/2000  },
+  { label: '1',  mult: 1,     oz: 1/1000  },
+  { label: '2',  mult: 2,     oz: 1/500   },
+  { label: '5',  mult: 5,     oz: 1/200   },
+  { label: '10', mult: 10,    oz: 1/100   },
+  { label: '25', mult: 25,    oz: 1/40    },
+  { label: '50', mult: 50,    oz: 1/20    },
+  { label: '100',mult: 100,   oz: 1/10    },
+];
+
+// ── Helpers ──────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt  = (n, d=4) => n != null ? n.toFixed(d) : '—';
+const fmtUSD = n => n != null ? '$' + n.toFixed(2) : '—';
+const fmtPct = n => n != null ? (n >= 0 ? '+' : '') + n.toFixed(2) + '%' : '—';
+const pctChange = (a, b) => b != null && a != null && a !== 0 ? ((b - a) / a) * 100 : null;
+
+function closestBefore(records, daysAgo) {
+  const target = new Date();
+  target.setDate(target.getDate() - daysAgo);
+  const tStr = target.toISOString().slice(0, 10);
+  // find the last record whose date <= tStr
+  for (let i = records.length - 1; i >= 0; i--) {
+    if (records[i].date <= tStr) return records[i];
+  }
+  return records[0];
+}
+
+// ── Clock ────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  $('clock').textContent = now.toLocaleString('en-US', {
+    timeZone: 'America/Denver',
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }) + ' MST';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Main ─────────────────────────────────────────────
+let ALL_DATA = [];
+let rateChart = null;
+
+fetch('data/rates.json')
+  .then(r => r.json())
+  .then(data => {
+    ALL_DATA = data.sort((a, b) => a.date.localeCompare(b.date));
+    init(ALL_DATA);
+    document.getElementById('loading').classList.add('hidden');
+  })
+  .catch(e => {
+    console.error(e);
+    document.getElementById('loading').classList.add('hidden');
+  });
+
+function init(data) {
+  const latest = data[data.length - 1];
+  const prev   = data.length > 1 ? data[data.length - 2] : null;
+
+  // ── Hero ────────────────────────────────────────
+  $('hero-rate').textContent = fmt(latest.rate_usd, 4);
+  $('hero-date').textContent = new Date(latest.date + 'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+
+  if (prev) {
+    const d = ((latest.rate_usd - prev.rate_usd) / prev.rate_usd) * 100;
+    const el = $('hero-change');
+    el.textContent = (d >= 0 ? '▲ +' : '▼ ') + d.toFixed(3) + '% from yesterday';
+    el.className = 'hero-change ' + (d >= 0 ? 'up' : 'down');
+  }
+
+  // ATH
+  const ath = data.reduce((best, r) => r.rate_usd > best.rate_usd ? r : best, data[0]);
+  $('stat-ath').textContent = '$' + fmt(ath.rate_usd, 4);
+  $('stat-ath-date').textContent = ath.date;
+
+  // YTD
+  const yearStart = data.find(r => r.date >= new Date().getFullYear() + '-01-01') || data[0];
+  const ytd = pctChange(yearStart.rate_usd, latest.rate_usd);
+  $('stat-ytd').innerHTML = `<span class="${ytd>=0?'up':'down'}">${fmtPct(ytd)}</span>`;
+  $('stat-ytd').style.color = ytd >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // 30d
+  const r30 = closestBefore(data, 30);
+  const p30 = pctChange(r30.rate_usd, latest.rate_usd);
+  $('stat-30d').innerHTML = `<span>${fmtPct(p30)}</span>`;
+  $('stat-30d').style.color = p30 >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // 1Y
+  const r1y = closestBefore(data, 365);
+  const p1y = pctChange(r1y.rate_usd, latest.rate_usd);
+  $('stat-1y').innerHTML = `<span>${fmtPct(p1y)}</span>`;
+  $('stat-1y').style.color = p1y >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Since inception (first record)
+  const first = data[0];
+  const pAll = pctChange(first.rate_usd, latest.rate_usd);
+  const yearsElapsed = (new Date(latest.date) - new Date(first.date)) / (365.25 * 86400000);
+  const avgAnnual = yearsElapsed > 0 ? (Math.pow(1 + pAll/100, 1/yearsElapsed) - 1) * 100 : 0;
+  $('stat-total').innerHTML = `<span style="color:var(--green)">${fmtPct(pAll)}</span>`;
+  $('stat-avg-annual').textContent = avgAnnual.toFixed(2);
+
+  // ── Denominations ─────────────────────────────
+  const tbody = $('denom-tbody');
+  tbody.innerHTML = DENOMS.map(d => `
+    <tr>
+      <td><span class="denom-badge">${d.label} GB</span></td>
+      <td>${(d.oz).toFixed(6)}</td>
+      <td>$${(d.mult * latest.rate_usd).toFixed(4)}</td>
+    </tr>
+  `).join('');
+
+  // ── History table ─────────────────────────────
+  const sorted = [...data].reverse();
+  $('history-count').textContent = data.length + ' data points';
+  $('history-tbody').innerHTML = sorted.map((r, i) => {
+    const prevR = i < sorted.length - 1 ? sorted[i + 1] : null;
+    const chg = prevR ? pctChange(prevR.rate_usd, r.rate_usd) : null;
+    const premium = r.gold_spot_usd && r.rate_usd
+      ? ((r.rate_usd * 1000 / r.gold_spot_usd) - 1) * 100
+      : null;
+    return `
+      <tr>
+        <td>${r.date}</td>
+        <td>$${fmt(r.rate_usd, 4)}</td>
+        <td>${chg != null ? `<span class="pill ${chg>=0?'up':'down'}">${fmtPct(chg)}</span>` : '—'}</td>
+        <td>${r.gold_spot_usd ? '$' + r.gold_spot_usd.toLocaleString() : '—'}</td>
+        <td style="color:var(--muted)">${premium != null ? fmtPct(premium) : '—'}</td>
+      </tr>`;
+  }).join('');
+
+  // ── Calculator ────────────────────────────────
+  function calcUpdate() {
+    const qty   = parseFloat($('calc-qty').value) || 0;
+    const denom = parseFloat($('calc-denom').value) || 1;
+    const total = qty * denom * latest.rate_usd;
+    const oz    = qty * denom / 1000;
+    $('calc-output').textContent = '$' + total.toFixed(4);
+    $('calc-gold-oz').textContent = oz.toFixed(6) + ' T oz';
+    if (latest.gold_spot_usd) {
+      $('calc-spot-val').textContent = '$' + (oz * latest.gold_spot_usd).toFixed(2) + ' spot';
+    } else {
+      $('calc-spot-val').textContent = '—';
+    }
+  }
+  $('calc-qty').addEventListener('input', calcUpdate);
+  $('calc-denom').addEventListener('change', calcUpdate);
+  calcUpdate();
+
+  // ── Charts ────────────────────────────────────
+  drawRateChart(data, '1y');
+  drawAnnualChart(data);
+
+  document.querySelectorAll('.range-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      drawRateChart(data, btn.dataset.range);
+    });
+  });
+}
+
+function filterByRange(data, range) {
+  const now = new Date(data[data.length - 1].date);
+  const map = { '1m': 30, '3m': 90, '6m': 180, '1y': 365 };
+  if (!map[range]) return data;
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - map[range]);
+  const cutStr = cutoff.toISOString().slice(0, 10);
+  return data.filter(r => r.date >= cutStr);
+}
+
+function drawRateChart(data, range) {
+  const subset = filterByRange(data, range);
+  const labels = subset.map(r => r.date);
+  const rates  = subset.map(r => r.rate_usd);
+  const spots  = subset.map(r => r.implied_spot_usd ? r.implied_spot_usd / 1000 : null);
+
+  const ctx = document.getElementById('rateChart').getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 280);
+  grad.addColorStop(0, 'rgba(201,168,76,0.25)');
+  grad.addColorStop(1, 'rgba(201,168,76,0.00)');
+
+  if (rateChart) rateChart.destroy();
+
+  rateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '1 Goldback (USD)',
+          data: rates,
+          borderColor: '#c9a84c',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          fill: true,
+          backgroundColor: grad,
+          yAxisID: 'y',
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e1b13',
+          borderColor: '#2e2a1e',
+          borderWidth: 1,
+          titleColor: '#7a7260',
+          bodyColor: '#e8dfc8',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont: { family: 'DM Mono', size: 12 },
+          callbacks: {
+            label: ctx => ` 1 GB = $${ctx.raw.toFixed(4)}`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(46,42,30,0.6)', drawTicks: false },
+          border: { color: 'rgba(46,42,30,0.8)' },
+          ticks: {
+            color: '#7a7260',
+            font: { family: 'DM Mono', size: 10 },
+            maxTicksLimit: 8,
+            maxRotation: 0,
+          }
+        },
+        y: {
+          grid: { color: 'rgba(46,42,30,0.6)', drawTicks: false },
+          border: { color: 'rgba(46,42,30,0.8)', dash: [3, 3] },
+          ticks: {
+            color: '#7a7260',
+            font: { family: 'DM Mono', size: 10 },
+            callback: v => '$' + v.toFixed(3),
+          }
+        }
+      }
+    }
+  });
+}
+
+function drawAnnualChart(data) {
+  // Compute year-over-year return for each calendar year
+  const byYear = {};
+  data.forEach(r => {
+    const y = r.date.slice(0, 4);
+    if (!byYear[y]) byYear[y] = [];
+    byYear[y].push(r);
+  });
+
+  const years = Object.keys(byYear).sort();
+  const returns = [];
+  for (let i = 0; i < years.length; i++) {
+    const yr = byYear[years[i]];
+    const first = yr[0].rate_usd;
+    const last  = yr[yr.length - 1].rate_usd;
+    returns.push(((last - first) / first) * 100);
+  }
+
+  const ctx = document.getElementById('annualChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: years,
+      datasets: [{
+        label: 'Annual Return %',
+        data: returns,
+        backgroundColor: returns.map(v => v >= 0 ? 'rgba(90,173,122,0.6)' : 'rgba(201,90,76,0.6)'),
+        borderColor:  returns.map(v => v >= 0 ? '#5aad7a' : '#c95a4c'),
+        borderWidth: 1,
+        borderRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e1b13',
+          borderColor: '#2e2a1e',
+          borderWidth: 1,
+          titleColor: '#7a7260',
+          bodyColor: '#e8dfc8',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont: { family: 'DM Mono', size: 12 },
+          callbacks: { label: c => ` ${c.raw.toFixed(2)}%` }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { color: 'rgba(46,42,30,0.8)' },
+          ticks: { color: '#7a7260', font: { family: 'DM Mono', size: 10 } }
+        },
+        y: {
+          grid: { color: 'rgba(46,42,30,0.6)' },
+          border: { display: false },
+          ticks: {
+            color: '#7a7260',
+            font: { family: 'DM Mono', size: 10 },
+            callback: v => v.toFixed(0) + '%',
+          }
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
