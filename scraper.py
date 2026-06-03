@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
 Goldback Exchange Rate Scraper
-Fetches the daily Goldback rate from goldback.com and the gold spot price
-from apmex.com, then appends both to data/rates.json.
+Fetches the daily Goldback rate from the IMS XML feed used by the official
+Goldback WordPress plugin, and the gold spot price from apmex.com,
+then appends both to data/rates.json.
 """
 
 import json
-import re
+import re  # still used by APMEX DOM fallback
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-from bs4 import BeautifulSoup
 
 try:
     from playwright.sync_api import sync_playwright
@@ -22,7 +23,7 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 DATA_FILE    = Path(__file__).parent / "data" / "rates.json"
-GOLDBACK_URL = "https://www.goldback.com/exchange-rates/"
+GOLDBACK_XML_URL = "https://services.idealmsp.com/IMSPlugins/goldback-exchange/goldbackrate.xml"
 APMEX_URL    = "https://www.apmex.com/gold-price"
 MST          = ZoneInfo("America/Denver")
 
@@ -42,89 +43,29 @@ def save_data(records: list) -> None:
         json.dump(records, f, indent=2)
 
 
-# ── Goldback rate ────────────────────────────────────────────────────────────
+# ── Goldback rate (IMS XML feed) ─────────────────────────────────────────────
 
-def extract_rate_from_html(html: str) -> float | None:
-    """Try several strategies to extract the 1-Goldback USD rate."""
-    soup = BeautifulSoup(html, "html.parser")
+def fetch_goldback_rate() -> float | None:
+    """
+    Fetch the Goldback exchange rate from the IMS XML feed.
+    This is the same source used by the official Goldback WordPress plugin
+    (goldback-exchange-rate.php), so it's reliable and structured.
 
-    # Strategy 1: element whose entire visible text is a bare dollar amount
-    for tag in soup.find_all(["h2", "h3", "span", "p"]):
-        text = tag.get_text(strip=True)
-        m = re.search(r'^\$?([\d]{1,3}\.[\d]{2})$', text)
-        if m:
-            val = float(m.group(1))
-            if 1.0 < val < 200.0:
-                return round(val, 2)
-
-    # Strategy 2: regex patterns against the raw HTML / JSON blob
-    patterns = [
-        r'"rate"\s*:\s*([\d]+\.[\d]{2,4})',
-        r'"exchange_rate"\s*:\s*([\d]+\.[\d]+)',
-        r'data-rate="([\d]+\.[\d]+)"',
-        r'exchangeRate\s*[=:]\s*([\d]+\.[\d]+)',
-        r'1\s*Goldback[^$]*\$\s*([\d]+\.[\d]{2})',
-        r'\$\s*([\d]{1,3}\.[\d]{2})\b',
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, html, re.IGNORECASE):
-            val = float(m.group(1))
-            if 1.0 < val < 200.0:
-                return round(val, 4)
-
-    return None
-
-
-def fetch_goldback_rate_requests() -> float | None:
+    Returns the USD rate (1 Goldback → USD) as a float, or None on failure.
+    """
     headers = {"User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )}
-    r = requests.get(GOLDBACK_URL, headers=headers, timeout=30)
+    r = requests.get(GOLDBACK_XML_URL, headers=headers, timeout=30)
     r.raise_for_status()
-    return extract_rate_from_html(r.text)
 
-
-def fetch_goldback_rate_playwright() -> float | None:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        intercepted_rate = [None]
-
-        def on_response(response):
-            if intercepted_rate[0] is not None:
-                return
-            try:
-                ct = response.headers.get("content-type", "")
-                if "json" in ct or "xml" in ct:
-                    try:
-                        body = response.json()
-                        text = json.dumps(body)
-                    except Exception:
-                        text = response.text()
-                    rate = extract_rate_from_html(text)
-                    if rate:
-                        intercepted_rate[0] = rate
-            except Exception:
-                pass
-
-        page.on("response", on_response)
-        page.goto(GOLDBACK_URL, wait_until="networkidle", timeout=60_000)
-
-        try:
-            page.wait_for_function(
-                "() => Array.from(document.querySelectorAll('h2,h3,span'))"
-                ".some(el => /^\\$?[\\d]{1,3}\\.[\\d]{2}$/.test(el.textContent.trim()))",
-                timeout=20_000,
-            )
-        except Exception:
-            page.wait_for_timeout(5_000)
-
-        if intercepted_rate[0] is None:
-            intercepted_rate[0] = extract_rate_from_html(page.content())
-
-        browser.close()
-        return intercepted_rate[0]
+    xml = ET.fromstring(r.text)
+    rate_text = xml.findtext("Rate")
+    if rate_text is None:
+        return None
+    val = float(rate_text)
+    return round(val, 4) if 1.0 < val < 200.0 else None
 
 
 # ── Gold spot price (APMEX) ──────────────────────────────────────────────────
@@ -239,10 +180,7 @@ def main() -> None:
         sys.exit(0)
 
     print(f"Fetching Goldback rate for {today} …")
-    rate = fetch_goldback_rate_requests()
-    if rate is None and PLAYWRIGHT_AVAILABLE:
-        print("  requests found no rate — trying Playwright …")
-        rate = fetch_goldback_rate_playwright()
+    rate = fetch_goldback_rate()
 
     if rate is None:
         print("ERROR: Could not extract Goldback exchange rate.", file=sys.stderr)
