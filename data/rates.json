@@ -1352,5 +1352,12 @@
     "gold_spot_usd": null,
     "implied_spot_usd": 8850.0,
     "scraped_at": "2026-08-17T17:38:24.018891+00:00"
+  },
+  {
+    "date": "2026-08-18",
+    "rate_usd": 8.72,
+    "gold_spot_usd": null,
+    "implied_spot_usd": 8720.0,
+    "scraped_at": "2026-08-18T17:38:35.842408+00:00"
   }
 ]
