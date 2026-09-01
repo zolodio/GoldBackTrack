@@ -76,19 +76,55 @@ def extract_rate_from_html(html: str) -> float | None:
 
 
 def fetch_goldback_rate_requests() -> float | None:
-    headers = {"User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    )}
-    r = requests.get(GOLDBACK_URL, headers=headers, timeout=30)
-    r.raise_for_status()
+    """
+    Plain HTTP fetch. Goldback's site now sits behind bot-detection that
+    returns 403 to non-browser requests, AND the rate is rendered
+    client-side via JS (not present in the raw HTML) as of the 2026-08
+    redesign. This function is kept as a cheap first attempt / fallback
+    for other rate sources, but it is expected to fail on goldback.com and
+    must never raise — any failure just returns None so the caller can
+    fall through to Playwright.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/",
+    }
+    try:
+        r = requests.get(GOLDBACK_URL, headers=headers, timeout=30)
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"  requests fetch failed ({e}) — will try Playwright")
+        return None
     return extract_rate_from_html(r.text)
 
 
 def fetch_goldback_rate_playwright() -> float | None:
+    """
+    As of the 2026-08 site redesign, goldback.com:
+      1. Returns 403 to plain `requests` calls (bot detection), and
+      2. Renders the exchange rate client-side — the raw HTML only
+         contains a bare "1 =" placeholder heading with no number in it.
+    So a real browser context is required, and we can't assume the
+    number ever lands in static markup; we lean on intercepting the
+    JSON XHR/fetch calls the page makes, with a DOM scan as backup.
+    """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+            viewport={"width": 1366, "height": 900},
+            locale="en-US",
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+        )
+        page = context.new_page()
         intercepted_rate = [None]
 
         def on_response(response):
@@ -109,19 +145,41 @@ def fetch_goldback_rate_playwright() -> float | None:
                 pass
 
         page.on("response", on_response)
-        page.goto(GOLDBACK_URL, wait_until="networkidle", timeout=60_000)
 
         try:
+            page.goto(GOLDBACK_URL, wait_until="networkidle", timeout=60_000)
+        except Exception as e:
+            print(f"  Playwright goto warning: {e}")
+
+        # Wait for the "1 = $XX.XX" heading to actually populate with a
+        # number (it starts empty and is filled in by JS after load).
+        try:
             page.wait_for_function(
-                "() => Array.from(document.querySelectorAll('h2,h3,span'))"
-                ".some(el => /^\\$?[\\d]{1,3}\\.[\\d]{2}$/.test(el.textContent.trim()))",
+                """() => {
+                    const text = document.body.innerText;
+                    return /1\\s*=\\s*\\$?\\s*[\\d]{1,3}\\.[\\d]{2}/.test(text)
+                        || Array.from(document.querySelectorAll('h2,h3,span,div'))
+                            .some(el => /^\\$?[\\d]{1,3}\\.[\\d]{2}$/.test(el.textContent.trim()));
+                }""",
                 timeout=20_000,
             )
         except Exception:
-            page.wait_for_timeout(5_000)
+            page.wait_for_timeout(6_000)
 
         if intercepted_rate[0] is None:
-            intercepted_rate[0] = extract_rate_from_html(page.content())
+            html = page.content()
+            intercepted_rate[0] = extract_rate_from_html(html)
+
+        if intercepted_rate[0] is None:
+            # Last resort: look for "1 = $XX.XX" directly in rendered text,
+            # since the number may sit in a sibling element to the "1 ="
+            # heading rather than inside one bare element.
+            body_text = page.evaluate("() => document.body.innerText")
+            m = re.search(r'1\s*=\s*\$?\s*([\d]{1,3}\.[\d]{2})', body_text)
+            if m:
+                val = float(m.group(1))
+                if 1.0 < val < 200.0:
+                    intercepted_rate[0] = round(val, 2)
 
         browser.close()
         return intercepted_rate[0]
